@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CompanionForge</title>
+<style>
+:root{--bg:#eef2f1;--card:#fff;--ink:#14201f;--muted:#5d6b69;--accent:#0f766e;--amber:#f2b84b;--line:#d5dedc;--bot:#e4ecea;--onaccent:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1716;--card:#172221;--ink:#e6efed;--muted:#92a3a0;--accent:#2dd4bf;--line:#2a3b39;--bot:#1f2f2d;--onaccent:#06201c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{padding:20px 24px 4px}
+h1{font:700 28px Georgia,serif;margin:0}
+header p{margin:4px 0 0;color:var(--muted)}
+main{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:16px;padding:16px 24px 24px;max-width:1100px;margin:auto}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+h2{font:700 17px Georgia,serif;margin:0 0 10px}
+label{display:block;font-weight:600;margin:10px 0 3px}
+input,select,textarea{width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:130px;resize:vertical}
+.row{display:flex;gap:8px}
+button{background:var(--accent);color:var(--onaccent);border:0;border-radius:6px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--amber)}
+#chatbox{display:flex;flex-direction:column;min-height:480px}
+#log{flex:1;overflow-y:auto;max-height:460px;display:flex;flex-direction:column;gap:8px;padding:4px 0}
+.msg{max-width:85%;padding:9px 12px;border-radius:10px;white-space:pre-wrap}
+.bot{background:var(--bot);align-self:flex-start}
+.user{background:var(--accent);color:var(--onaccent);align-self:flex-end}
+#chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.chip{background:transparent;color:var(--ink);border:1px solid var(--amber);font-weight:500;padding:5px 10px}
+#empty{color:var(--muted)}
+details{margin-top:12px}
+pre{white-space:pre-wrap;background:var(--bg);padding:10px;border-radius:6px;font-size:12px;max-height:200px;overflow:auto}
+small{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>CompanionForge</h1>
+  <p>Turn any organisation’s documents into a ready-to-use AI companion.</p>
+</header>
+<main>
+  <section>
+    <h2>1. Connect</h2>
+    <label for="provider">AI provider</label>
+    <select id="provider"><option value="groq">Groq (fastest, free)</option><option value="gemini">Gemini</option></select>
+    <label for="key">API key</label>
+    <input id="key" type="password" placeholder="Paste key (stays in your browser)">
+    <label for="model">Model</label>
+    <input id="model" value="openai/gpt-oss-20b">
+
+    <h2 style="margin-top:18px">2. Add knowledge</h2>
+    <label for="org">Organisation name</label>
+    <input id="org" placeholder="e.g. Sample Institute of Technology">
+    <label for="kb">FAQs or documents</label>
+    <textarea id="kb" placeholder="Paste text here, or upload a .txt file"></textarea>
+    <div class="row" style="margin-top:6px">
+      <input id="file" type="file" accept=".txt,.md" aria-label="Upload text file">
+      <button class="ghost" id="sample" type="button">Load sample</button>
+    </div>
+
+    <h2 style="margin-top:18px">3. Design companion</h2>
+    <label for="name">Companion name</label>
+    <input id="name" value="Maya">
+    <div class="row">
+      <div style="flex:1"><label for="tone">Tone</label>
+        <select id="tone"><option>Friendly</option><option>Formal</option><option>Playful</option></select></div>
+      <div style="flex:1"><label for="lang">Language</label>
+        <select id="lang"><option>English</option><option>Malayalam</option><option>Manglish (Malayalam in English letters)</option></select></div>
+    </div>
+    <button id="forge" type="button" style="margin-top:14px;width:100%">Forge companion</button>
+  </section>
+
+  <section id="chatbox">
+    <h2 id="title">Your companion</h2>
+    <div id="log"><p id="empty">Fill in the steps on the left and press Forge companion.</p></div>
+    <div id="chips"></div>
+    <div class="row">
+      <input id="msg" placeholder="Ask your companion…" disabled aria-label="Message">
+      <button id="send" type="button" disabled>Send</button>
+    </div>
+    <details>
+      <summary>How it works</summary>
+      <small>Documents + persona settings are combined into a system prompt. Gemini answers only from that knowledge, and the chat history is sent with every turn. Built with Claude. The companion runs on Groq or Gemini.</small>
+      <pre id="prompt"></pre>
+    </details>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let history = [], systemPrompt = "";
+
+const SAMPLE = `Sample Institute of Technology, Thiruvananthapuram (sample data)
+Admissions: B.Tech applications open from March to May. Eligibility: 60% in Physics, Chemistry and Maths in Class 12, and a valid KEAM rank.
+Fees: Tuition is 60,000 rupees per semester. Hostel is 25,000 rupees per semester. Fees are paid on the student portal.
+Exams: Semester exams are held in November and May. Hall tickets are released 10 days before each exam.
+Library: Open 8 AM to 8 PM, Monday to Saturday. Students can borrow 4 books for 14 days.
+Placement cell: Open to final-year students. Registration starts in July. Contact: placements@sample.edu
+Office hours: 9 AM to 4 PM, Monday to Friday.`;
+
+const DEFAULT_MODEL = { groq: "openai/gpt-oss-20b", gemini: "gemini-3.8-flash" };
+function loadProvider() {
+  const p = $("provider").value;
+  $("model").value = DEFAULT_MODEL[p];
+  try { $("key").value = localStorage.getItem("cf_key_" + p) || ""; } catch (e) { $("key").value = ""; }
+}
+$("provider").addEventListener("change", loadProvider);
+$("key").addEventListener("change", () => { try { localStorage.setItem("cf_key_" + $("provider").value, $("key").value.trim()); } catch (e) {} });
+loadProvider();
+$("sample").onclick = () => { $("org").value = "Sample Institute of Technology"; $("kb").value = SAMPLE; };
+$("file").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader(); r.onload = () => { $("kb").value = r.result; }; r.readAsText(f);
+};
+
+async function groq(body, status) {
+  const k = $("key").value.trim();
+  if (!k) throw new Error("Paste your Groq API key first.");
+  const main = $("model").value.trim() || DEFAULT_MODEL.groq;
+  const models = [main, "openai/gpt-oss-120b", "llama-3.1-8b-instant"].filter((m, i, a) => a.indexOf(m) === i);
+  const messages = [];
+  if (body.systemInstruction) messages.push({ role: "system", content: body.systemInstruction.parts[0].text });
+  body.contents.forEach(c => messages.push({ role: c.role === "model" ? "assistant" : "user", content: c.parts[0].text }));
+  let lastErr = "API error";
+  for (const m of models) {
+    if (status) status(`Asking ${m}…`);
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + k },
+        body: JSON.stringify({ model: m, messages, temperature: 0.3 })
+      });
+      const data = await res.json();
+      if (res.ok) return data.choices[0].message.content || "";
+      lastErr = (data.error && data.error.message) || "API error";
+      if (res.status === 401) break;
+    } catch (e) { lastErr = e.message; }
+  }
+  throw new Error(lastErr);
+}
+
+async function gemini(body, status) {
+  if ($("provider").value === "groq") return groq(body, status);
+  const k = $("key").value.trim();
+  if (!k) throw new Error("Paste your Gemini API key first.");
+  const main = $("model").value.trim() || "gemini-3.8-flash";
+  const models = [main, "gemini-flash-latest"];
+  let lastErr = "API error";
+  for (const m of models) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (status) status(`Asking ${m} (try ${attempt + 1} of 3)…`);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(k)}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal
+        });
+        const data = await res.json();
+        clearTimeout(timer);
+        if (res.ok) {
+          const c = data.candidates && data.candidates[0];
+          const parts = c && c.content && c.content.parts;
+          return parts ? parts.map(p => p.text || "").join("") : "";
+        }
+        lastErr = (data.error && data.error.message) || "API error";
+        if (![429, 500, 503].includes(res.status)) break;
+        if (status) status("Model is busy, retrying…");
+      } catch (e) {
+        clearTimeout(timer);
+        lastErr = e.name === "AbortError" ? "Request timed out after 25 seconds." : e.message;
+      }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  throw new Error(lastErr);
+}
+
+function add(cls, text) {
+  const e = $("empty"); if (e) e.remove();
+  const d = document.createElement("div");
+  d.className = "msg " + cls; d.textContent = text;
+  $("log").appendChild(d); $("log").scrollTop = 1e6;
+  return d;
+}
+
+async function forge() {
+  const org = $("org").value.trim(), kb = $("kb").value.trim(), name = $("name").value.trim() || "Companion";
+  if (!org || !kb) { alert("Add the organisation name and some knowledge first."); return; }
+  systemPrompt = `You are ${name}, an AI companion for ${org}.
+Tone: ${$("tone").value}. Reply language: ${$("lang").value}.
+Rules:
+1. Answer only from the KNOWLEDGE below.
+2. If the answer is not there, say you are not sure and suggest contacting the ${org} office.
+3. Keep answers short and clear.
+4. Never invent fees, dates, names or phone numbers.
+
+KNOWLEDGE:
+${kb}`;
+  history = [];
+  $("log").innerHTML = ""; $("chips").innerHTML = "";
+  $("prompt").textContent = systemPrompt;
+  $("title").textContent = name + " · " + org;
+  $("msg").disabled = false; $("send").disabled = false;
+  add("bot", `Hi, I am ${name}. Ask me anything about ${org}.`);
+  try {
+    const t = await gemini({
+      contents: [{ role: "user", parts: [{ text: "Write 3 short questions a user might ask, based on this knowledge. Return only a JSON array of 3 strings.\n\n" + kb.slice(0, 4000) }] }],
+      generationConfig: { responseMimeType: "application/json" }
+    });
+    JSON.parse(t.replace(/```json|```/g, "").trim()).slice(0, 3).forEach(q => {
+      const b = document.createElement("button");
+      b.className = "chip"; b.textContent = q; b.onclick = () => send(q);
+      $("chips").appendChild(b);
+    });
+  } catch (e) { add("bot", "Setup note: " + e.message); }
+}
+
+async function send(text) {
+  text = (text || $("msg").value).trim(); if (!text) return;
+  $("msg").value = "";
+  add("user", text);
+  history.push({ role: "user", parts: [{ text }] });
+  const el = add("bot", "Thinking…");
+  try {
+    const a = await gemini({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: history, generationConfig: { temperature: 0.3 }
+    }, msg => { el.textContent = msg; });
+    el.textContent = a || "No answer returned. Try again.";
+    history.push({ role: "model", parts: [{ text: a }] });
+  } catch (e) { el.textContent = "Error: " + e.message; history.pop(); }
+}
+
+$("forge").onclick = forge;
+$("send").onclick = () => send();
+$("msg").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+</script>
+</body>
+</html>
